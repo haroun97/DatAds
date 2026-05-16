@@ -1,0 +1,104 @@
+# DatAds Take-Home Solution
+
+Backend system that ingests ad performance data from mock ad platform APIs, normalizes and stores it, calculates CTR/CPC/ROAS, and exposes aggregated insights via a REST API.
+
+## Architecture
+
+```text
+Manual Script → Platform Pollers → Normalization → Deduplication → PostgreSQL → Aggregation → REST API
+```
+
+See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_design.png](part_1/system_design.png) for the architecture diagram.
+
+The working implementation lives in `app/` (Parts 2 and 3). Task-specific documentation is in `part_1/`, `part_2/`, and `part_3/`.
+
+## Tech Stack
+
+| Area | Technology |
+|------|------------|
+| Language | Python 3.12 |
+| API | FastAPI + uvicorn |
+| HTTP client | httpx |
+| Database | PostgreSQL (SQLite supported for quick local runs) |
+| ORM | SQLAlchemy + Alembic |
+| Retries | tenacity |
+| Tests | pytest |
+
+## Quick Start
+
+### Option A — SQLite (no Docker, fastest)
+
+```bash
+source venv/bin/activate   # create venv first if needed: python3 -m venv venv && pip install -r requirements.txt
+chmod +x scripts/dev.sh
+./scripts/dev.sh
+```
+
+Or manually:
+
+```bash
+export DATABASE_URL=sqlite:///./datads.db
+alembic upgrade head
+python scripts/ingest_facebook.py
+uvicorn app.main:app --reload
+```
+
+### Option B — PostgreSQL via Docker
+
+> Use `docker-compose` (not `docker compose`) if you see `unknown shorthand flag: 'd'`.
+> Docker maps Postgres to **port 5433** so it does not clash with a system Postgres on 5432.
+
+```bash
+docker-compose up -d
+cp .env.example .env   # DATABASE_URL uses port 5433
+source venv/bin/activate
+alembic upgrade head
+python scripts/ingest_facebook.py
+uvicorn app.main:app --reload
+```
+
+Or run the helper script:
+
+```bash
+chmod +x scripts/setup_postgres.sh
+./scripts/setup_postgres.sh
+```
+
+Open interactive docs: http://localhost:8000/docs
+
+### 6. Example API calls
+
+```bash
+# Aggregated performance
+curl "http://localhost:8000/api/performance?platform=facebook&date_from=2026-04-17&date_to=2026-05-16"
+
+# Top ads by ROAS
+curl "http://localhost:8000/api/top-performing?metric=roas&limit=5&platform=facebook"
+```
+
+### 7. Run tests
+
+```bash
+pytest
+```
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|-------|--------|-----|
+| `unknown shorthand flag: 'd'` | Old Docker CLI | Use `docker-compose up -d` instead of `docker compose up -d` |
+| `password authentication failed for user "datads"` | Port 5432 is your **system** Postgres, not Docker | Use Option A (SQLite) or Docker on port **5433** (see `.env.example`) |
+| `Address already in use` (port 8000) | API already running | `pkill -f "uvicorn app.main"` or use another port: `--port 8001` |
+
+## Production Improvements
+
+- Scheduler (cron / Celery Beat) for periodic polling per platform
+- Message queue + worker pool for scalable ingestion
+- Raw API response storage (S3 / JSONB) for audit and reprocessing
+- Redis cache for hot query paths
+- Read replicas and pre-aggregated tables for high QPS
+- Full Google and TikTok poller implementations (stubs included)
+
+## AI Usage
+
+AI tools were used to help structure the implementation plan, refine documentation, and review architectural tradeoffs. The final implementation decisions, code organization, and submitted solution were reviewed and adapted by me.

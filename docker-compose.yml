@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: datads-postgres
+    environment:
+      POSTGRES_USER: datads
+      POSTGRES_PASSWORD: datads
+      POSTGRES_DB: datads
+    ports:
+      - "5433:5432"  # 5433 avoids conflict with a local PostgreSQL on 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datads -d datads"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
