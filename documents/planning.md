@@ -261,3 +261,4 @@ No action required unless the reviewer insists on duplicated files — the root 
 | `documents/dataAds_task.md` | Official assignment spec |
 | `documents/datads_delivery_plan.md` | Full implementation plan & interview talking points |
 | `documents/planning.md` | This file — status tracker |
+| `documents/manual_verification_guide.md` | **Step-by-step manual test checklist for every requirement** |
