@@ -82,10 +82,31 @@ curl "http://localhost:8000/api/top-performing?metric=roas&limit=5&platform=face
 pytest
 ```
 
+## Deploy on Render
+
+1. Push repo to GitHub and connect on [Render](https://render.com).
+2. Create a **PostgreSQL** database; link `DATABASE_URL` to the web service.
+3. **Start command:**
+   ```bash
+   alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+   ```
+4. Or use the included `render.yaml` blueprint (Web Service + Postgres).
+
+Render sets `DATABASE_URL` as `postgres://...`. The app rewrites that to `postgresql+psycopg://...` so it uses **psycopg v3** (in `requirements.txt`), not `psycopg2`.
+
+After deploy, ingest data once (Render Shell or locally against prod DB):
+
+```bash
+python scripts/ingest_facebook.py
+```
+
+API will return empty aggregates until data is ingested.
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
 |-------|--------|-----|
+| `No module named 'psycopg2'` on Render | `DATABASE_URL` is `postgres://` without driver | Fixed in `app/core/config.py` — redeploy latest code |
 | `unknown shorthand flag: 'd'` | Old Docker CLI | Use `docker-compose up -d` instead of `docker compose up -d` |
 | `password authentication failed for user "datads"` | Port 5432 is your **system** Postgres, not Docker | Use Option A (SQLite) or Docker on port **5433** (see `.env.example`) |
 | `Address already in use` (port 8000) | API already running | `pkill -f "uvicorn app.main"` or use another port: `--port 8001` |
