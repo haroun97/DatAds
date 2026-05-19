@@ -1,0 +1,17 @@
+aws_region   = "eu-central-1"
+project_name = "datads"
+environment  = "prod"
+
+# Render external DB URL or RDS connection string
+database_url = "postgresql+psycopg://user:pass@host:5432/datads"
+
+facebook_api_key = "facebook_test_key_123"
+
+# Google/TikTok pollers are stubs — keep schedules off until implemented
+enable_google_schedule = false
+enable_tiktok_schedule = false
+
+facebook_schedule_expression = "rate(1 hour)"
+lookback_days                = 30
+
+worker_image_tag = "latest"

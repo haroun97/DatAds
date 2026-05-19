@@ -29,6 +29,11 @@ def root():
     return RedirectResponse(url="/docs")
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    tags=["System"],
+    summary="Service health check",
+    description="Liveness check.",
+)
 def health():
     return {"status": "ok"}

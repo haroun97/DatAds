@@ -36,7 +36,11 @@ def main() -> None:
             print(f"Campaign {campaign_id}:")
             print(f"  Fetched {len(records)} records")
             print(f"  Inserted {inserted} records")
-            print(f"  Updated {updated} records\n")
+            print(f"  Updated {updated} records")
+            if records:
+                r = records[0]
+                print(f"  Sample metrics — CTR: {r.ctr:.4f}, CPC: {r.cpc:.4f}, ROAS: {r.roas:.4f}")
+            print()
     finally:
         poller.close()
         db.close()

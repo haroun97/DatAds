@@ -2,76 +2,107 @@
 
 ## Architecture Diagram
 
-![System Design](system_design.png)
+![Production Architecture](system_design_v2.png)
 
-## Overview
-
-The system ingests ad performance data from multiple external platforms, normalizes it into a common schema, stores it with deduplication, and serves aggregated metrics through a REST API.
+For local development you can also run ingestion with `scripts/ingest_facebook.py` (same pollers and database logic; no EventBridge or SQS). Production uses the flow below.
 
 ```text
-Scheduler / Manual Script
+EventBridge Scheduler (Facebook: 1h / Google: 2h / TikTok: 3h)
         ↓
-Platform Pollers (Facebook, Google, TikTok)
+SQS Ingest Queue  ──→  DLQ (after 3 failures)  ──→  CloudWatch Alarm → SNS
         ↓
-Normalization Layer
+ECS Fargate Workers (horizontally scalable, graceful SIGTERM shutdown)
         ↓
-Deduplication (unique constraint)
+Platform Pollers (Facebook, Google, TikTok)  ←── Retry + Exponential Backoff
         ↓
-PostgreSQL
+Normalization Layer  (unified schema: platform, campaign_id, ad_id, date, …)
         ↓
-Aggregation Layer
+Deduplication  (ON CONFLICT DO UPDATE on platform + campaign_id + ad_id + date)
         ↓
-REST API (FastAPI)
+PostgreSQL  (unique constraint + indexes on platform, date, campaign, ctr, cpc, roas)
+        ↓
+Aggregation at Query Time  (CTR = clicks/impressions, CPC = spend/clicks, ROAS = revenue/spend)
+        ↓
+REST API — FastAPI  (GET /api/performance, GET /api/top-performing)
 ```
+
+Infrastructure is implemented under `infrastructure/terraform/` and `app/worker/`.
+
+---
 
 ## Architectural Choices
 
-**Separation of ingestion and query paths.** External ad APIs are slow, rate-limited, and unreliable. The REST API reads only from our database, so user-facing queries stay fast and stable even when upstream APIs fail.
+**Separation of ingestion and query paths.** External ad APIs are slow, rate-limited, and unreliable. The REST API reads only from the database, so user-facing queries stay fast and stable even when upstream APIs fail.
 
-**Platform-specific pollers.** Each ad platform uses different endpoints, authentication, pagination, and field names. Isolating that complexity in dedicated poller classes keeps the rest of the system platform-agnostic.
+**Platform-specific pollers behind a common interface.** Each ad platform uses different endpoints, authentication, pagination, and field names. A `BasePoller` ABC isolates that complexity in dedicated classes (`FacebookPoller`, `GooglePoller`, `TikTokPoller`), keeping the rest of the system platform-agnostic. Adding a new platform is a single new class.
 
-**Normalization before storage.** All platforms are mapped to one internal model (`platform`, `campaign_id`, `ad_id`, `date`, `impressions`, `clicks`, `spend`, `revenue`, etc.). This simplifies metric calculation, deduplication, and API filtering.
+**Normalization before storage.** All platforms are mapped to one internal model (`platform`, `campaign_id`, `ad_id`, `date`, `impressions`, `clicks`, `spend`, `revenue`). This simplifies metric calculation, deduplication, and API filtering.
 
-**PostgreSQL with a unique constraint** on `(platform, campaign_id, ad_id, date)` for idempotent ingestion. Re-fetching overlapping date ranges updates existing rows instead of creating duplicates.
+**PostgreSQL with a unique constraint** on `(platform, campaign_id, ad_id, date)` for idempotent ingestion. Re-fetching overlapping date ranges updates existing rows (`ON CONFLICT DO UPDATE`) instead of creating duplicates.
+
+**Asynchronous job queue (SQS).** Decouples the scheduler from the workers. Workers can scale horizontally by adding ECS task replicas. SQS visibility timeout acts as a distributed lock — if a worker crashes mid-job, the message becomes visible again automatically.
+
+**Dead Letter Queue (DLQ).** After 3 delivery failures, a message moves to the DLQ. A CloudWatch alarm fires an SNS notification so the on-call engineer is alerted without any polling.
+
+---
 
 ## Reliability
 
-- **Retries with exponential backoff** (tenacity) for 429 and 5xx responses and network timeouts
-- **Rate-limit awareness** via conservative page sizes and retry handling on 429
-- **Idempotent upserts** so repeated ingestion runs are safe
-- **Structured logging** for observability during ingestion and API requests
+| Failure | Strategy |
+|---------|----------|
+| 5xx from ad API | Exponential backoff retry (up to 4 attempts via `tenacity`) |
+| 429 rate limit | Retry with backoff; page sizes kept below platform limits |
+| Network timeout | Retry; `httpx` timeout configured (30 s) |
+| Worker crash mid-job | SQS visibility timeout → message re-queued automatically |
+| Persistent failures | DLQ after 3 attempts → CloudWatch alarm → SNS alert |
+| Duplicate data | PostgreSQL `ON CONFLICT DO UPDATE` (idempotent upserts) |
+| Invalid API input | FastAPI validation → 400/422 with clear messages |
+| DLQ replay | `scripts/replay_dlq.py` for manual reprocessing |
+
+---
 
 ## Scalability
 
-For the take-home, ingestion is triggered manually via `scripts/ingest_facebook.py`. In production:
+### What scales well today
 
-1. A **scheduler** creates fetch jobs per platform/campaign at different intervals
-2. A **message queue** (SQS, RabbitMQ, Redis) buffers jobs and absorbs spikes
-3. A **worker pool** processes jobs in parallel
-4. **Raw responses** are stored in object storage or JSONB for reprocessing
-5. An **analytics database** (PostgreSQL at medium scale; ClickHouse/BigQuery at large scale) serves queries
-6. A **cache** (Redis) stores frequent aggregates for high QPS on `/api/performance`
+1. **Scheduler (EventBridge)** — Fires ingest jobs on a timer (e.g. Facebook every hour). You can add more platforms without changing worker code.
+2. **Message queue (SQS)** — Jobs wait in the queue if workers are busy. Example: 100 jobs arrive at once; workers drain them over time instead of dropping work.
+3. **Worker pool (ECS Fargate)** — Run more worker containers to process more jobs in parallel. Example: `desired_count = 5` means five workers pulling from SQS at once.
+4. **Raw API responses (S3 or JSONB)** — Save the original JSON from Facebook/Google/TikTok so you can reprocess later without calling the APIs again.
+5. **PostgreSQL + indexes** — Fine for the current size (3 platforms, a few campaigns, last 30 days). Queries filter by `platform` and `date` using indexes.
+6. **Cache (Redis)** — *Planned, not wired yet.* Store answers like “Facebook totals for April” for a few minutes so repeated API calls do not hit the database every time.
 
-To support thousands of API requests per second on the query layer: read replicas, pre-aggregated rollups, and caching — never call external ad APIs from the query path.
+The query API never calls external ad platforms — it only reads from our database. That keeps reads fast even when Facebook is slow or down.
 
-## Failure Handling
+### Known limits in the current code
 
-| Failure | Strategy |
-|---------|----------|
-| 5xx from mock API | Exponential backoff retry (up to 4 attempts) |
-| 429 rate limit | Retry with backoff; respect platform limits |
-| Network timeout | Retry; httpx timeout configured (30s) |
-| Duplicate data | PostgreSQL `ON CONFLICT` upsert |
-| Invalid API input | FastAPI validation → 400/422 with clear messages |
+| Limit | What happens now | Simple fix at larger scale |
+|-------|------------------|----------------------------|
+| **Totals in Python** | `/api/performance` loads all matching rows, then sums in code | Use SQL `SUM()` so the database does the math (e.g. one query for 1M rows) |
+| **One campaign after another** | One `ingest_platform` job loops campaigns sequentially | Split into many `ingest_campaign` jobs on SQS so several workers run in parallel |
+| **No cache** | Every API request runs a fresh DB query | Redis in front of `/api/performance` for common filters |
+| **Platform rate limits** | Facebook ~200 req/hr; more workers do not help past that | Per-platform rate budget shared across workers |
 
-## Metric Aggregation Note
+### How the design fits different sizes
 
-For `/api/performance`, aggregate metrics are computed from totals (not averages of row-level rates):
+| Size | Fits? | Example | What to change |
+|------|-------|---------|----------------|
+| **Small** (this take-home) | Yes | 3 platforms, ~30 campaigns, 30 days of data | Nothing required |
+| **Medium** | With tuning | 10 platforms, ~500 campaigns, steady API traffic | SQL aggregation, Redis cache, more ECS workers, fan-out campaign jobs |
+| **Large** | Needs new pieces | Billions of rows, thousands of reads per second | ClickHouse or BigQuery for analytics, read replicas, pre-aggregated daily rollups |
+
+To support very high read traffic (thousands of requests per second): read replicas, rollup tables (e.g. daily totals per platform), and Redis — still never calling external ad APIs from the query path.
+
+---
+
+## Metric Aggregation
+
+For `/api/performance`, aggregate metrics are computed from totals, not averages of per-row rates:
 
 ```text
 average_ctr  = total_clicks / total_impressions
-average_cpc  = total_spend / total_clicks
+average_cpc  = total_spend  / total_clicks
 average_roas = total_revenue / total_spend
 ```
 
-This is more accurate than averaging per-row CTR/CPC/ROAS values.
+Averaging row-level CTR/CPC/ROAS values would be mathematically incorrect (different impression volumes per row get equal weight). Using totals gives the true weighted aggregate.

@@ -1,14 +1,32 @@
 # DatAds Take-Home Solution
 
+**Author:** Haroun Louati
+
 Backend system that ingests ad performance data from mock ad platform APIs, normalizes and stores it, calculates CTR/CPC/ROAS, and exposes aggregated insights via a REST API.
+
+## Live deployment
+
+| Resource | URL |
+|----------|-----|
+| API docs | https://datads.onrender.com/docs |
+| Health | https://datads.onrender.com/health |
+| Repository | https://github.com/haroun97/DatAds |
+
+Example calls (production):
+
+```bash
+curl "https://datads.onrender.com/api/performance?platform=facebook&date_from=2026-04-19&date_to=2026-05-18"
+curl "https://datads.onrender.com/api/top-performing?metric=roas&limit=5&platform=facebook&date_from=2026-04-19&date_to=2026-05-18"
+```
 
 ## Architecture
 
 ```text
-Manual Script → Platform Pollers → Normalization → Deduplication → PostgreSQL → Aggregation → REST API
+EventBridge Scheduler → SQS Queue → ECS Fargate Workers → Platform Pollers
+        → Normalization → Deduplication → PostgreSQL → Aggregation → REST API
 ```
 
-See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_design.png](part_1/system_design.png) for the architecture diagram.
+See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_design_v2.png](part_1/system_design_v2.png) for the architecture diagram.
 
 The working implementation lives in `app/` (Parts 2 and 3). Task-specific documentation is in `part_1/`, `part_2/`, and `part_3/`.
 
@@ -39,7 +57,7 @@ Or manually:
 ```bash
 export DATABASE_URL=sqlite:///./datads.db
 alembic upgrade head
-python scripts/ingest_facebook.py
+python3 scripts/ingest_facebook.py
 uvicorn app.main:app --reload
 ```
 
@@ -53,7 +71,7 @@ docker-compose up -d
 cp .env.example .env   # DATABASE_URL uses port 5433
 source venv/bin/activate
 alembic upgrade head
-python scripts/ingest_facebook.py
+python3 scripts/ingest_facebook.py
 uvicorn app.main:app --reload
 ```
 
@@ -97,7 +115,7 @@ Render sets `DATABASE_URL` as `postgres://...`. The app rewrites that to `postgr
 After deploy, ingest data once (Render Shell or locally against prod DB):
 
 ```bash
-python scripts/ingest_facebook.py
+python3 scripts/ingest_facebook.py
 ```
 
 API will return empty aggregates until data is ingested.
@@ -111,10 +129,19 @@ API will return empty aggregates until data is ingested.
 | `password authentication failed for user "datads"` | Port 5432 is your **system** Postgres, not Docker | Use Option A (SQLite) or Docker on port **5433** (see `.env.example`) |
 | `Address already in use` (port 8000) | API already running | `pkill -f "uvicorn app.main"` or use another port: `--port 8001` |
 
+## AWS scheduled ingestion
+
+Production-style pipeline: **EventBridge Scheduler → SQS → ECS workers**.
+
+See [infrastructure/README.md](infrastructure/README.md) for deploy steps, job JSON contract, and operations.
+
+```bash
+cd infrastructure/terraform && terraform apply
+./scripts/deploy_worker_aws.sh
+```
+
 ## Production Improvements
 
-- Scheduler (cron / Celery Beat) for periodic polling per platform
-- Message queue + worker pool for scalable ingestion
 - Raw API response storage (S3 / JSONB) for audit and reprocessing
 - Redis cache for hot query paths
 - Read replicas and pre-aggregated tables for high QPS

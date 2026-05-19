@@ -11,3 +11,4 @@ htmlcov/
 postgres_data/
 datads.db
 *.db
+documents/

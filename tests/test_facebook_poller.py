@@ -73,6 +73,27 @@ def test_facebook_poller_pagination():
     assert records[0].ctr == 0.1
 
 
+def _success_response(campaign: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "data": [
+                {
+                    "campaign_id": campaign,
+                    "ad_id": "fb_ad_1",
+                    "date": "2026-04-16",
+                    "impressions": 100,
+                    "clicks": 10,
+                    "spend": 5.0,
+                    "conversions": 1,
+                    "revenue": 20.0,
+                }
+            ],
+            "paging": {},
+        },
+    )
+
+
 def test_facebook_poller_retries_on_500():
     campaign = "fb_camp_123"
     calls = {"count": 0}
@@ -81,24 +102,28 @@ def test_facebook_poller_retries_on_500():
         calls["count"] += 1
         if calls["count"] == 1:
             return httpx.Response(500, json={"error": "server error"})
-        return httpx.Response(
-            200,
-            json={
-                "data": [
-                    {
-                        "campaign_id": campaign,
-                        "ad_id": "fb_ad_1",
-                        "date": "2026-04-16",
-                        "impressions": 100,
-                        "clicks": 10,
-                        "spend": 5.0,
-                        "conversions": 1,
-                        "revenue": 20.0,
-                    }
-                ],
-                "paging": {},
-            },
-        )
+        return _success_response(campaign)
+
+    poller = _make_poller(handler)
+    records = poller.fetch_campaign(
+        campaign, date(2026, 4, 16), date(2026, 4, 16), limit=100
+    )
+    poller.close()
+
+    assert len(records) == 1
+    assert calls["count"] == 2
+
+
+def test_facebook_poller_retries_on_429():
+    """A 429 rate-limit response is retried the same way as a 500."""
+    campaign = "fb_camp_123"
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(429, json={"error": "rate limit exceeded"})
+        return _success_response(campaign)
 
     poller = _make_poller(handler)
     records = poller.fetch_campaign(

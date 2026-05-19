@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 30.0
     max_retry_attempts: int = 4
 
+    aws_region: str = "eu-central-1"
+    sqs_queue_url: str = ""
+    sqs_dlq_url: str = ""
+    sqs_wait_time_seconds: int = 20
+    sqs_max_messages: int = 1
+
 
 @lru_cache
 def get_settings() -> Settings:

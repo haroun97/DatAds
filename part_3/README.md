@@ -2,9 +2,23 @@
 
 Implementation: `app/api/routes.py`, `app/services/analytics_service.py`, `app/main.py`
 
-## Run the API
+## Live Deployment
+
+The API is deployed on **Render**:
+
+| | |
+|---|---|
+| **Swagger UI** | https://datads.onrender.com/docs |
+| **Health check** | https://datads.onrender.com/health |
+| **Performance** | https://datads.onrender.com/api/performance |
+| **Top performing** | https://datads.onrender.com/api/top-performing?metric=roas |
+
+> Note: Render free tier spins down after inactivity — the first request may take ~30 seconds to wake up.
+
+## Run Locally
 
 ```bash
+source venv/bin/activate
 uvicorn app.main:app --reload
 ```
 
@@ -66,6 +80,32 @@ Returns top ads sorted by a metric.
 curl "http://localhost:8000/api/top-performing?metric=roas&limit=5&platform=facebook&order=desc"
 ```
 
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "ad_id": "fb_ad_456",
+      "campaign_id": "fb_camp_123",
+      "platform": "facebook",
+      "date": "2026-05-01",
+      "impressions": 10000,
+      "clicks": 150,
+      "spend": 75.50,
+      "revenue": 360.00,
+      "ctr": 0.015,
+      "cpc": 0.503,
+      "roas": 4.768
+    }
+  ],
+  "pagination": {
+    "limit": 5,
+    "total": 87
+  }
+}
+```
+
 ## Validation
 
 - Invalid `metric` → `400` with allowed values listed
@@ -75,5 +115,13 @@ curl "http://localhost:8000/api/top-performing?metric=roas&limit=5&platform=face
 ## Tests
 
 ```bash
-pytest tests/test_api.py
+source venv/bin/activate
+pytest tests/test_api.py -v
+```
+
+Or test the live deployment directly:
+
+```bash
+curl "https://datads.onrender.com/api/performance?platform=facebook"
+curl "https://datads.onrender.com/api/top-performing?metric=roas&limit=5"
 ```

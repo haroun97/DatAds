@@ -42,6 +42,12 @@ def test_performance_empty(client):
     assert body["filters_applied"]["platform"] == "facebook"
 
 
+def test_invalid_date_range_returns_400(client):
+    response = client.get("/api/performance?date_from=2026-05-01&date_to=2026-04-01")
+    assert response.status_code == 400
+    assert "date_from" in response.json()["detail"]
+
+
 def test_top_performing_sorted(client, db_session):
     _seed_record(db_session, "fb_ad_low", roas=2.0)
     _seed_record(db_session, "fb_ad_high", roas=10.0)
