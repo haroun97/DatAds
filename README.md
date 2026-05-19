@@ -26,7 +26,7 @@ EventBridge Scheduler → SQS Queue → ECS Fargate Workers → Platform Pollers
         → Normalization → Deduplication → PostgreSQL → Aggregation → REST API
 ```
 
-See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_architecture_diagram.png](part_1/system_architecture_diagram.png) for the architecture diagram.
+See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_design.png](part_1/system_design.png) for the architecture diagram.
 
 The working implementation lives in `app/` (Parts 2 and 3). Task-specific documentation is in `part_1/`, `part_2/`, and `part_3/`.
 
