@@ -2,7 +2,7 @@
 
 ## Architecture Diagram
 
-![Production Architecture](system_design_v2.png)
+![System Architecture Diagram](system_architecture_diagram.png)
 
 For local development you can also run ingestion with `scripts/ingest_facebook.py` (same pollers and database logic; no EventBridge or SQS). Production uses the flow below.
 

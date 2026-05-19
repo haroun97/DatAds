@@ -26,7 +26,7 @@ EventBridge Scheduler → SQS Queue → ECS Fargate Workers → Platform Pollers
         → Normalization → Deduplication → PostgreSQL → Aggregation → REST API
 ```
 
-See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_design_v2.png](part_1/system_design_v2.png) for the architecture diagram.
+See [part_1/README.md](part_1/README.md) for the full system design and [part_1/system_architecture_diagram.png](part_1/system_architecture_diagram.png) for the architecture diagram.
 
 The working implementation lives in `app/` (Parts 2 and 3). Task-specific documentation is in `part_1/`, `part_2/`, and `part_3/`.
 
@@ -149,4 +149,4 @@ cd infrastructure/terraform && terraform apply
 
 ## AI Usage
 
-AI tools were used to help structure the implementation plan, refine documentation, and review architectural tradeoffs. The final implementation decisions, code organization, and submitted solution were reviewed and adapted by me.
+I used AI tools (Claude) as a coding assistant for debugging, boilerplate, and documentation review. The system design, architecture decisions (SQS fan-out, ECS workers, deduplication strategy, metric aggregation), and implementation were designed and validated by me. I used AI as a tool for iteration and feedback, but I made the final engineering decisions.
