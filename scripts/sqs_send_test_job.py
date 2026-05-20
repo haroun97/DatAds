@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Send a test ingest job to SQS (Phase 1 manual verification)."""
 
+# Use this script to manually enqueue an ingestion job for testing the worker end-to-end.
+# Usage: python scripts/sqs_send_test_job.py --platform facebook --lookback-days 7
+# Requires: SQS_QUEUE_URL set in .env and valid AWS credentials.
+
 import argparse
 import json
 import sys

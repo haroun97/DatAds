@@ -1,3 +1,6 @@
+# Data-access layer for the ad_performance table.
+# All SQL queries go through this class so the rest of the app stays DB-agnostic.
+
 from datetime import date
 
 from sqlalchemy import func, select
@@ -20,11 +23,14 @@ class AdPerformanceRepository:
 
         inserted = 0
         updated = 0
+        # Check which SQL dialect is in use so we can pick the right upsert syntax.
         dialect = self.db.bind.dialect.name
 
         for record in records:
             values = record.model_dump()
             if dialect == "postgresql":
+                # PostgreSQL supports ON CONFLICT ... RETURNING, letting us detect
+                # whether the row was freshly inserted or updated.
                 stmt = pg_insert(AdPerformance).values(**values)
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_ad_performance",
@@ -40,11 +46,13 @@ class AdPerformanceRepository:
                     },
                 ).returning(AdPerformance.id, AdPerformance.created_at, AdPerformance.updated_at)
                 result = self.db.execute(stmt).first()
+                # If created_at == updated_at the row was just created; otherwise it was updated.
                 if result and result.created_at == result.updated_at:
                     inserted += 1
                 else:
                     updated += 1
             else:
+                # SQLite uses a simpler ON CONFLICT syntax without RETURNING support.
                 stmt = sqlite_insert(AdPerformance).values(**values)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["platform", "campaign_id", "ad_id", "date"],
@@ -60,12 +68,15 @@ class AdPerformanceRepository:
                     },
                 )
                 self.db.execute(stmt)
+                # SQLite can't tell us if the row was inserted or updated, so count everything
+                # as inserted (good enough for local development and tests).
                 inserted += 1
 
         self.db.commit()
         return inserted, updated
 
     def query_filtered(self, filters: PerformanceFilters) -> list[AdPerformance]:
+        # Build a SELECT query dynamically based on whichever filters the caller provides.
         stmt = select(AdPerformance)
         if filters.platform:
             stmt = stmt.where(AdPerformance.platform == filters.platform)
@@ -78,6 +89,7 @@ class AdPerformanceRepository:
         return list(self.db.scalars(stmt).all())
 
     def count_filtered(self, filters: PerformanceFilters) -> int:
+        # Same filter logic as query_filtered but returns only the row count (no data loaded).
         stmt = select(func.count()).select_from(AdPerformance)
         if filters.platform:
             stmt = stmt.where(AdPerformance.platform == filters.platform)

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Ingest Facebook ad performance data for the last 30 days."""
 
+# Manual ingestion script — run this directly to seed the database from the Facebook API.
+# Usage: python scripts/ingest_facebook.py
+
 import sys
 from pathlib import Path
 
+# Make the project root importable when running this script directly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.logging import setup_logging
@@ -42,6 +46,7 @@ def main() -> None:
                 print(f"  Sample metrics — CTR: {r.ctr:.4f}, CPC: {r.cpc:.4f}, ROAS: {r.roas:.4f}")
             print()
     finally:
+        # Always close the HTTP client and DB session, even if an error occurred.
         poller.close()
         db.close()
 

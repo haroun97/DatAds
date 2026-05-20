@@ -1,3 +1,6 @@
+# Tests for the Facebook poller: pagination across multiple pages and retry behaviour.
+# Uses httpx.MockTransport so no real HTTP requests are made.
+
 from datetime import date
 
 import httpx
@@ -9,6 +12,7 @@ settings = get_settings()
 
 
 def _make_poller(handler) -> FacebookPoller:
+    # Build a FacebookPoller wired to a mock HTTP transport for unit testing.
     transport = httpx.MockTransport(handler)
     client = httpx.Client(
         base_url=settings.api_base_url,
@@ -19,11 +23,13 @@ def _make_poller(handler) -> FacebookPoller:
 
 
 def test_facebook_poller_pagination():
+    # Verify the poller follows next_cursor until it's absent, collecting all records.
     campaign = "fb_camp_123"
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert f"/api/v1/campaigns/{campaign}/insights" in str(request.url)
         if "after" not in request.url.params:
+            # First page — return one record and a cursor pointing to the next page.
             return httpx.Response(
                 200,
                 json={
@@ -42,6 +48,7 @@ def test_facebook_poller_pagination():
                     "paging": {"next": "1"},
                 },
             )
+        # Second page — return one record and no cursor (end of results).
         return httpx.Response(
             200,
             json={
@@ -70,10 +77,11 @@ def test_facebook_poller_pagination():
     assert len(records) == 2
     assert records[0].ad_id == "fb_ad_1"
     assert records[1].ad_id == "fb_ad_2"
-    assert records[0].ctr == 0.1
+    assert records[0].ctr == 0.1   # 10 clicks / 100 impressions
 
 
 def _success_response(campaign: str) -> httpx.Response:
+    # Reusable mock response for the retry tests below.
     return httpx.Response(
         200,
         json={
@@ -95,6 +103,7 @@ def _success_response(campaign: str) -> httpx.Response:
 
 
 def test_facebook_poller_retries_on_500():
+    # First request fails with a 500; the second should succeed and return the record.
     campaign = "fb_camp_123"
     calls = {"count": 0}
 
@@ -111,7 +120,7 @@ def test_facebook_poller_retries_on_500():
     poller.close()
 
     assert len(records) == 1
-    assert calls["count"] == 2
+    assert calls["count"] == 2   # exactly one retry
 
 
 def test_facebook_poller_retries_on_429():
@@ -132,4 +141,4 @@ def test_facebook_poller_retries_on_429():
     poller.close()
 
     assert len(records) == 1
-    assert calls["count"] == 2
+    assert calls["count"] == 2   # exactly one retry

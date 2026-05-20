@@ -13,6 +13,9 @@ Field mapping:
   performance.purchase_value -> revenue
 """
 
+# Not yet implemented — scaffold is here so the registry and worker can reference it
+# without crashing. Follow the same pattern as FacebookPoller to implement this.
+
 from datetime import date
 
 from app.pollers.base import BasePoller

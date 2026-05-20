@@ -1,5 +1,9 @@
+# Shared pytest fixtures used across all test files.
+# Uses an in-memory SQLite database so tests are fast, isolated, and need no external DB.
+
 import os
 
+# Override the database URL before any app modules are imported so they use SQLite.
 os.environ["DATABASE_URL"] = "sqlite://"
 
 import pytest
@@ -15,6 +19,8 @@ from app.main import app
 
 @pytest.fixture
 def db_session():
+    # Create a fresh in-memory SQLite DB for each test function.
+    # StaticPool ensures the same in-memory DB is reused within a single test.
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -27,11 +33,13 @@ def db_session():
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine)
+        Base.metadata.drop_all(bind=engine)   # clean up so tests don't share state
 
 
 @pytest.fixture
 def client(db_session):
+    # Override the FastAPI DB dependency so HTTP tests use the same in-memory session
+    # as the db_session fixture — changes made via the API are visible in the fixture and vice versa.
     def override_get_db():
         try:
             yield db_session

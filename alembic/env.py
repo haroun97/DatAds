@@ -1,3 +1,7 @@
+# Alembic migration environment.
+# Reads the database URL from app settings so migrations always target the correct DB,
+# whether running locally, in CI, or on Render.
+
 from logging.config import fileConfig
 
 from alembic import context
@@ -5,19 +9,23 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.database import Base
-from app.db.models import AdPerformance  # noqa: F401
+from app.db.models import AdPerformance  # noqa: F401  — imported so Base.metadata knows about it
 
 config = context.config
 settings = get_settings()
+
+# Override the URL in alembic.ini with the one from our Settings class (honours .env).
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Tell Alembic which tables exist so it can auto-generate migration diffs.
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
+    # Offline mode: generate SQL scripts without a live DB connection.
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -31,9 +39,11 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # Online mode: connect to the DB and apply migrations directly.
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
+        # NullPool avoids connection pool issues during migrations.
         poolclass=pool.NullPool,
     )
 

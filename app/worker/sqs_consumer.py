@@ -1,3 +1,6 @@
+# Long-running SQS consumer that polls for ingestion jobs and processes them one by one.
+# Handles graceful shutdown on SIGTERM/SIGINT so in-flight jobs finish before the process exits.
+
 import json
 import logging
 import signal
@@ -15,8 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class GracefulShutdown:
+    """Catches SIGTERM / SIGINT and sets a flag so the poll loop can exit cleanly."""
+
     def __init__(self) -> None:
         self.stop = False
+        # Register the same handler for both the container stop signal and Ctrl-C.
         signal.signal(signal.SIGTERM, self._handle)
         signal.signal(signal.SIGINT, self._handle)
 
@@ -41,6 +47,7 @@ class SqsIngestConsumer:
         logger.info("Starting SQS consumer on %s", self.queue_url)
         while not self._shutdown.stop:
             try:
+                # Long-poll: block up to wait_time_seconds waiting for messages.
                 response = self._sqs.receive_message(
                     QueueUrl=self.queue_url,
                     MaxNumberOfMessages=self.max_messages,
@@ -53,9 +60,11 @@ class SqsIngestConsumer:
 
             messages = response.get("Messages", [])
             if not messages:
+                # No messages available — loop back to poll again.
                 continue
 
             for message in messages:
+                # Check for shutdown signal between messages to exit promptly.
                 if self._shutdown.stop:
                     break
                 self._handle_message(message)
@@ -68,10 +77,12 @@ class SqsIngestConsumer:
 
         try:
             body = json.loads(message["Body"])
+            # SNS-wrapped messages have an extra "Message" envelope — unwrap it.
             if isinstance(body, dict) and "Message" in body and isinstance(body["Message"], str):
                 body = json.loads(body["Message"])
             job = parse_ingest_job(body)
         except (json.JSONDecodeError, ValueError, TypeError):
+            # Poison-pill: leave the message on the queue so it eventually lands in the DLQ.
             logger.exception("Invalid message body; leaving on queue for DLQ")
             return
 
@@ -86,6 +97,7 @@ class SqsIngestConsumer:
             logger.info("Job succeeded (receive_count=%s): %s", receive_count, result)
         except Exception:
             db.rollback()
+            # Don't delete the message — SQS will make it visible again for a retry.
             logger.exception(
                 "Job failed (receive_count=%s); message will become visible again",
                 receive_count,
@@ -95,9 +107,11 @@ class SqsIngestConsumer:
             db.close()
 
         try:
+            # Only delete the message after the job has committed successfully.
             self._sqs.delete_message(
                 QueueUrl=self.queue_url,
                 ReceiptHandle=receipt_handle,
             )
         except (BotoCoreError, ClientError):
+            # Deletion failure is non-fatal but risks processing the same message twice.
             logger.exception("Failed to delete message; risk of duplicate processing")

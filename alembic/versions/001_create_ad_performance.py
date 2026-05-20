@@ -6,13 +6,16 @@ Create Date: 2026-05-16
 
 """
 
+# Initial migration — creates the ad_performance table with all columns and indexes.
+# Run with: alembic upgrade head
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "001"
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = None   # first migration, no parent
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -36,8 +39,10 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("NOW()")),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("NOW()")),
         sa.PrimaryKeyConstraint("id"),
+        # Unique constraint prevents duplicate rows for the same ad on the same day.
         sa.UniqueConstraint("platform", "campaign_id", "ad_id", "date", name="uq_ad_performance"),
     )
+    # Indexes on columns used in WHERE clauses and ORDER BY to keep queries fast.
     op.create_index("idx_ad_performance_platform", "ad_performance", ["platform"])
     op.create_index("idx_ad_performance_date", "ad_performance", ["date"])
     op.create_index("idx_ad_performance_campaign", "ad_performance", ["campaign_id"])
@@ -48,6 +53,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Drop indexes before the table (required by some DB engines).
     op.drop_index("idx_ad_performance_cpc", table_name="ad_performance")
     op.drop_index("idx_ad_performance_ctr", table_name="ad_performance")
     op.drop_index("idx_ad_performance_roas", table_name="ad_performance")

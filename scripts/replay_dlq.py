@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Move messages from the DLQ back to the main ingest queue."""
 
+# Use this script to re-process failed jobs that ended up in the Dead Letter Queue.
+# Usage: python scripts/replay_dlq.py --max 10
+# Requires: SQS_QUEUE_URL and SQS_DLQ_URL set in .env and valid AWS credentials.
+
 import argparse
 import sys
 from pathlib import Path
@@ -26,6 +30,7 @@ def main() -> None:
     replayed = 0
 
     while replayed < args.max:
+        # Poll one message at a time to keep the loop simple and easy to interrupt.
         response = client.receive_message(
             QueueUrl=settings.sqs_dlq_url,
             MaxNumberOfMessages=1,
@@ -33,9 +38,10 @@ def main() -> None:
         )
         messages = response.get("Messages", [])
         if not messages:
-            break
+            break   # DLQ is empty
 
         message = messages[0]
+        # Re-enqueue the message body to the main queue, then delete it from the DLQ.
         client.send_message(
             QueueUrl=settings.sqs_queue_url,
             MessageBody=message["Body"],

@@ -12,3 +12,4 @@ postgres_data/
 datads.db
 *.db
 documents/
+frontend/

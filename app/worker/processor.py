@@ -1,3 +1,6 @@
+# Processes individual ingestion jobs received from SQS.
+# Two job types are handled: ingest_platform (all campaigns) and ingest_campaign (one campaign).
+
 import logging
 from datetime import date
 
@@ -17,6 +20,7 @@ class JobProcessor:
         self.repo = AdPerformanceRepository(db)
 
     def process_platform(self, job: IngestPlatformJob) -> dict[str, int | str]:
+        # Skip platforms whose pollers aren't implemented yet rather than crashing.
         if job.platform not in IMPLEMENTED_PLATFORMS:
             logger.warning(
                 "Skipping platform %s (poller not implemented); job_id=%s",
@@ -44,6 +48,7 @@ class JobProcessor:
         poller = create_poller(job.platform)
         totals = {"fetched": 0, "inserted": 0, "updated": 0, "campaigns_processed": 0}
         try:
+            # Ingest each campaign in sequence and accumulate totals.
             for campaign_id in campaign_ids:
                 summary = self._ingest_campaign(
                     poller=poller,
@@ -57,6 +62,7 @@ class JobProcessor:
                 totals["updated"] += summary["updated"]
                 totals["campaigns_processed"] += 1
         finally:
+            # Always close the HTTP client, even if an error occurred mid-loop.
             if hasattr(poller, "close"):
                 poller.close()
 
@@ -69,6 +75,7 @@ class JobProcessor:
         return {"job_id": str(job.job_id), "platform": job.platform, **totals, "status": "ok"}
 
     def process_campaign(self, job: IngestCampaignJob) -> dict[str, int | str]:
+        # Same guard as process_platform — skip unimplemented platforms gracefully.
         if job.platform not in IMPLEMENTED_PLATFORMS:
             logger.warning(
                 "Skipping campaign job for unimplemented platform %s; job_id=%s",
@@ -118,6 +125,7 @@ class JobProcessor:
         since: date,
         until: date,
     ) -> dict[str, int]:
+        # Facebook exposes a per-campaign fetch method; other platforms use the generic fetch.
         if platform == "facebook":
             records = poller.fetch_campaign(campaign_id, since, until)  # type: ignore[attr-defined]
         else:

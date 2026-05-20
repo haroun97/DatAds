@@ -1,3 +1,6 @@
+# API route handlers for the analytics endpoints.
+# All routes live under the /api prefix and are documented in Swagger at /docs.
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +13,7 @@ from app.services.analytics_service import AnalyticsService
 
 router = APIRouter(prefix="/api", tags=["Analytics"])
 
+# Only these metric names are accepted by /top-performing.
 ALLOWED_METRICS: set[str] = {"ctr", "cpc", "roas", "clicks", "revenue"}
 
 # Shared query parameters (brief descriptions + examples for Swagger /docs)
@@ -52,6 +56,7 @@ def _parse_filters(
     date_to: date | None,
     campaign_id: str | None,
 ) -> PerformanceFilters:
+    # Guard against impossible date ranges before hitting the database.
     if date_from and date_to and date_from > date_to:
         raise HTTPException(
             status_code=400,
@@ -66,6 +71,7 @@ def _parse_filters(
 
 
 def _filters_applied(filters: PerformanceFilters) -> dict[str, str | None]:
+    # Serialize the active filters into the API response so callers know what was applied.
     return {
         "platform": filters.platform,
         "date_from": filters.date_from.isoformat() if filters.date_from else None,
@@ -112,6 +118,7 @@ def get_top_performing(
     date_to: date | None = DateToQuery,
     db: Session = Depends(get_db),
 ) -> TopPerformingResponse:
+    # Reject unknown metric names early with a clear error message.
     if metric not in ALLOWED_METRICS:
         raise HTTPException(
             status_code=400,
@@ -127,5 +134,6 @@ def get_top_performing(
     )
     return TopPerformingResponse(
         data=records,
+        # `total` is the full match count; `limit` is how many rows were returned.
         pagination={"limit": limit, "total": total},
     )
