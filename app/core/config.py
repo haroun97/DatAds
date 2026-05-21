@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     sqs_wait_time_seconds: int = 20   # long-polling window in seconds
     sqs_max_messages: int = 1         # process one message at a time for simplicity
 
+    # Comma-separated browser origins allowed to call the API (presentation site, local dev).
+    cors_origins: str = (
+        "http://localhost:8080,http://localhost:5173,http://localhost:3000,"
+        "http://127.0.0.1:8080,http://127.0.0.1:5173,http://127.0.0.1:3000"
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
 
 # Cache the settings object so .env is only read once per process.
 @lru_cache
